@@ -2,10 +2,12 @@
 
 #define INODENUM              1024
 #define DIRECT_EXTENT_NUM     6
-#define FREE_BLOCKS_PER_GROUP 511    // blocksize/8-1
-#define IMAP_START            1      // 0号LAB是superblock
+#define FREE_BLOCKS_PER_GROUP 511    // blocksize / 8 - 1
+#define INODENUM_PER_BLOCK    32     // block_size / inode_size
+#define IMAP_START            1      // 0号LBA是superblock
 #define LBA_SIZE              4096
 
+#define BYTENUM(n)   (((n) + 7) / 8)
 #define DIV_UP(x, b) (((x) + (b) - 1) / (b))
 
 typedef struct {
@@ -45,7 +47,8 @@ typedef struct {
 	uint64_t       imap_block_start;             // inode bitmap 起始块
 
 	uint64_t       free_stk_block_num;           // free stack 占用的块数
-	uint64_t       free_stk_block_start;         // free stack 起始块
+	uint64_t       free_stk_block_start;         // free stack （用于分配）起始块
+	uint64_t       free_stk_block2_start;        // free stack2（用于回收）起始块
 	
 	uint64_t       inode_table_block_num;        // inode table 占用的块数
     uint64_t       inode_table_block_start;      // inode table 起始块
