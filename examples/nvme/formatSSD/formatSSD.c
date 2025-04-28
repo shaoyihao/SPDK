@@ -423,7 +423,7 @@ void read_data_block_Group(u_int64_t LBA)
 	SuperBlock sb;
 	read_superblock(&sb);
 
-	// assert((LBA - sb.data_block_start) % FREE_BLOCKS_PER_GROUP == 0);   // 必须是链接块
+	// 必须是链接块
 
 	nextGroup g;
 	printf("Reading GroupBlock %lu ...", LBA);
@@ -433,10 +433,10 @@ void read_data_block_Group(u_int64_t LBA)
 	printf("Group %lu:\n", LBA);
 	printf("\tcnt: %d\n", g.cnt);
 	printf("\tBlocks Num: (top -> down)\n");
-	for (int i = g.cnt - 1; i >= 0; i--) 
+	for (int i = 0; i < g.cnt; i++) 
 	{
 		printf("%10lu ", g.blocks[i]);
-		if ((g.cnt - i) % 10 == 0) printf("\n");
+		if ((i + 1) % 10 == 0) printf("\n");
 	}
 	printf("\n");
 }
@@ -513,20 +513,18 @@ void InitDataBlockGroup(void)
 		g.cnt++;
 		if (g.cnt == FREE_BLOCKS_PER_GROUP) 
 		{
-			writeObj(&g, sizeof(g), sb.data_block_start + k * FREE_BLOCKS_PER_GROUP, 1);
+			writeObj(&g, sizeof(g), sb.data_block_start + (++k) * FREE_BLOCKS_PER_GROUP - 1, 1);
 			g.cnt = 0;
-			k++;
 			printf("\rInitializing datablock group links... %.2lf%%", 100.0 * k / tot);
 			fflush(stdout);
 		}
 	}
-	if (g.cnt > 0) writeObj(&g, sizeof(g), sb.data_block_start + k * FREE_BLOCKS_PER_GROUP, 1);
-	printf("\rInitializing datablock group links... %.2lf%%", 100.0 * (++k) / tot);
+	if (g.cnt > 0) writeObj(&g, sizeof(g), sb.data_block_start + (++k) * FREE_BLOCKS_PER_GROUP - 1, 1);
+	printf("\rInitializing datablock group links... %.2lf%%", 100.0 * k / tot);
 	fflush(stdout);
 
 	g.cnt = -1;
-	uint64_t lastLBA = sb.total_blocks_num - sb.data_block_num % FREE_BLOCKS_PER_GROUP;  // 终止块
-	writeObj(&g, sizeof(g), lastLBA, 1);
+	writeObj(&g, sizeof(g), sb.total_blocks_num - 1, 1);  // 终止块
 	printf(" END.\n\n");
 }
 void InitFreeBlockStk(void)
@@ -538,7 +536,7 @@ void InitFreeBlockStk(void)
 	FreeBlockStk stk = {.top = 0};
 	for (int i = 0; i < FREE_BLOCKS_PER_GROUP; i++)
 	{
-		stk.blocks[i] = sb.data_block_start + i;
+		stk.blocks[i] = sb.data_block_start + FREE_BLOCKS_PER_GROUP - 1 - i;
 		stk.top++;
 	}
 	writeObj(&stk, sizeof(stk), sb.free_stk_block_start, sb.free_stk_block_num);
@@ -559,6 +557,71 @@ static void format(void)
 	printf("Format SSD successfully!\n");
 }
 
+
+void allocBlocks(u_int64_t k)
+{
+	SuperBlock sb;
+	read_superblock(&sb);
+
+	FreeBlockStk stk;
+	printf("Reading FreeBlockStk ...");
+	readObj(&stk, sizeof(FreeBlockStk), sb.free_stk_block_start, sb.free_stk_block_num);
+	printf("END.\n");
+
+	nextGroup g;
+	while (k > 0)
+	{
+		if (stk.top == 1) readObj(&g, sizeof(g), stk.blocks[0], 1);
+		printf("alloc block %lu\n", stk.blocks[stk.top - 1]);
+		stk.top--;
+		k--;
+		if (stk.top == 0)
+		{
+			if (g.cnt == -1) 
+			{
+				// TODO
+				printf("All blocks have been used once. Need Reformat.\n");
+				return;
+			}
+
+			for (int i = g.cnt - 1; i >= 0; i--)
+				stk.blocks[stk.top++] = g.blocks[i];
+		}
+	}
+
+	printf("Write FreeBlockStk Back ...");
+	writeObj(&stk, sizeof(stk), sb.free_stk_block_start, sb.free_stk_block_num);
+	printf("END.\n");
+}
+void collect(u_int64_t startLBA, u_int64_t cnt)
+{
+	SuperBlock sb;
+	read_superblock(&sb);
+
+	FreeBlockStk stk;
+	printf("Reading FreeBlockStk2 ...");
+	readObj(&stk, sizeof(FreeBlockStk), sb.free_stk_block2_start, sb.free_stk_block_num);
+	printf("END.\n");
+
+	nextGroup g;
+	while (cnt > 0)
+	{
+		if (stk.top == FREE_BLOCKS_PER_GROUP)
+		{
+			g.cnt = FREE_BLOCKS_PER_GROUP;
+			for (int i = 0; i < stk.top; i++) 
+				g.blocks[i++] = stk.blocks[i];
+			writeObj(&g, sizeof(g), startLBA, 1);
+			stk.top = 0;
+		}
+		stk.blocks[stk.top++] = startLBA++;
+		cnt--;
+	}
+
+	printf("Write FreeBlockStk2 Back ...");
+	writeObj(&stk, sizeof(stk), sb.free_stk_block2_start, sb.free_stk_block_num);
+	printf("END.\n");
+}
 
 int main(int argc, char **argv)
 {
@@ -611,10 +674,12 @@ int main(int argc, char **argv)
 	// read_inode(1010);
 
 	// InitDataBlockGroup();
-	// read_data_block_Group(937684525);
+	// read_data_block_Group(546);
 
 	// InitFreeBlockStk();
 	// read_free_stk();
+
+	// allocBlocks(10);
 
 exit:
 	fflush(stdout);
